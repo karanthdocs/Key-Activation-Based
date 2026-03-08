@@ -16,7 +16,7 @@ console.log("⚡ Sarathi Auto FaceAuth++ loaded");
 // 🔐 LICENSE CONFIG
 // =======================
 
-const SECRET_KEY = "MySuperSecretKey2026";
+const SECRET_KEY = "0tXw2qJK6eX67eNS102zzIAE";
 const STORAGE_KEY = "sarathi_faceauth_license";
 
 // =======================
