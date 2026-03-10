@@ -1,3 +1,29 @@
+(async function() {
+    const MASTER_DEVICE_KEY = "MY_SECRET_DEVICE_KEY_123";
+    const fp = [
+        navigator.userAgent,
+        navigator.platform,
+        navigator.hardwareConcurrency,
+        screen.width,
+        screen.height,
+        new Date().getTimezoneOffset()
+    ].join("||");
+
+    // Combine master key + fingerprint
+    const combined = MASTER_DEVICE_KEY + "||" + fp;
+    const encoder = new TextEncoder();
+    const data = encoder.encode(combined);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    const hashArray = Array.from(new Uint8Array(hashBuffer));
+    const deviceKey = hashArray.map(b => b.toString(16).padStart(2,"0")).join("");
+
+    console.log("✅ Device key for this browser:");
+    console.log(deviceKey);
+})();
+
+///-----
+
+
 // ==UserScript==
 // @name         Sarathi Auto FaceAuth++ (Secure 3.3)
 // @namespace    http://tampermonkey.net/
