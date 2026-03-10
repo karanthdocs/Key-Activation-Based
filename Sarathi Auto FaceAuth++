@@ -1,195 +1,341 @@
 // ==UserScript==
-// @name         Sarathi Auto FaceAuth++ 
+// @name         Sarathi Auto FaceAuth++ (Secure 3.3)
 // @namespace    http://tampermonkey.net/
-// @version      5.1
-// @description  Auto + Manual FaceAuth with webcam, image upload, preview, notifications & PC-locked license enforcement
+// @version      3.31
+// @description  Auto + Manual FaceAuth with webcam, upload, preview, and secure device key activation
 // @match        https://sarathi.parivahan.gov.in/sarathiservice/authenticationaction.do*
 // @grant        none
 // ==/UserScript==
 
-(function() {
+(async function() {
 'use strict';
 
-console.log("⚡ Sarathi Auto FaceAuth++ loaded");
+/* ---------- MASTER DEVICE KEY ---------- */
+const MASTER_DEVICE_KEY = "MY_SECRET_DEVICE_KEY_123"; // Never expose externally
 
-// =======================
-// 🔐 LICENSE CONFIG
-// =======================
-
-const SECRET_KEY = "0tXw2qJK6eX67eNS102zzIAE";
-const STORAGE_KEY = "sarathi_faceauth_license";
-
-// =======================
-// HELPER FUNCTIONS
-// =======================
-
-async function sha256(str) {
-    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
-    return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,"0")).join("");
-}
-
-function getMachineData() {
-    return [
+/* ---------- HELPER: SHA-256 HASH ---------- */
+async function getDeviceHash(masterKey) {
+    const fp = [
         navigator.userAgent,
-        navigator.language,
+        navigator.platform,
+        navigator.hardwareConcurrency,
         screen.width,
         screen.height,
-        screen.colorDepth,
         new Date().getTimezoneOffset()
     ].join("||");
+    const combined = masterKey + "||" + fp;
+    const encoder = new TextEncoder();
+    const data = encoder.encode(combined);
+    const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+    return Array.from(new Uint8Array(hashBuffer))
+        .map(b => b.toString(16).padStart(2,"0"))
+        .join("");
 }
 
-async function computeShortLicense() {
-    const machineData = getMachineData();
-    const hashBuffer = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(machineData + SECRET_KEY));
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    const shortHash = hashArray.slice(0,6).map(b=>b.toString(16).padStart(2,"0")).join("");
-    const base36 = parseInt(shortHash,16).toString(36).toUpperCase();
-    const padded = base36.padStart(12,"0");
-    return padded.match(/.{1,4}/g).join("-");
+/* ---------- DEVICE ACTIVATION WITH PASTE SUPPORT ---------- */
+async function ensureActivation() {
+    const expectedHash = await getDeviceHash(MASTER_DEVICE_KEY);
+    let storedKey = localStorage.getItem("sarathiDeviceKey");
+
+    if (storedKey !== expectedHash) {
+        const overlay = document.createElement("div");
+        overlay.style.position = "fixed";
+        overlay.style.top = 0;
+        overlay.style.left = 0;
+        overlay.style.width = "100%";
+        overlay.style.height = "100%";
+        overlay.style.background = "rgba(0,0,0,0.6)";
+        overlay.style.zIndex = "9999999";
+        overlay.style.display = "flex";
+        overlay.style.alignItems = "center";
+        overlay.style.justifyContent = "center";
+
+        const box = document.createElement("div");
+        box.style.background = "#fff";
+        box.style.padding = "20px";
+        box.style.borderRadius = "8px";
+        box.style.textAlign = "center";
+        box.style.minWidth = "320px";
+        box.style.fontFamily = "Arial";
+
+        const title = document.createElement("h3");
+        title.innerText = "Activate Device (Secure)";
+        box.appendChild(title);
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.placeholder = "Enter Device Key";
+        input.style.width = "80%";
+        input.style.padding = "8px";
+        input.style.marginTop = "10px";
+        input.onpaste = (e) => { return true; };
+        box.appendChild(input);
+
+        const pasteBtn = document.createElement("button");
+        pasteBtn.innerText = "📋 Paste Key";
+        pasteBtn.style.marginTop = "10px";
+        pasteBtn.style.marginLeft = "5px";
+        pasteBtn.style.padding = "6px 12px";
+        pasteBtn.style.cursor = "pointer";
+        pasteBtn.onclick = async () => {
+            try {
+                const text = await navigator.clipboard.readText();
+                input.value = text.trim();
+            } catch {
+                alert("Failed to read clipboard. Use Ctrl+V manually.");
+            }
+        };
+        box.appendChild(pasteBtn);
+
+        const btn = document.createElement("button");
+        btn.innerText = "Activate";
+        btn.style.marginTop = "15px";
+        btn.style.padding = "8px 16px";
+        btn.style.background = "#28a745";
+        btn.style.color = "#fff";
+        btn.style.border = "none";
+        btn.style.borderRadius = "5px";
+        btn.style.cursor = "pointer";
+        box.appendChild(btn);
+
+        const msg = document.createElement("div");
+        msg.style.marginTop = "10px";
+        msg.style.fontSize = "13px";
+        msg.style.color = "red";
+        box.appendChild(msg);
+
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+
+        return new Promise(resolve => {
+            btn.onclick = async () => {
+                const key = input.value.trim();
+                if (!key) return;
+                if (key === expectedHash) {
+                    localStorage.setItem("sarathiDeviceKey", key);
+                    overlay.remove();
+                    resolve(true);
+                } else {
+                    msg.innerText = "❌ Invalid device key for this browser!";
+                }
+            };
+        });
+    }
+    return true;
 }
 
-async function verifyShortLicense(license) {
-    const expected = await computeShortLicense();
-    return license.toUpperCase() === expected;
-}
-
-async function isLicenseValid() {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return saved && await verifyShortLicense(saved);
-}
-
-// =======================
-// ACTIVATION POPUP
-// =======================
-
-function showActivationWindow() {
-    const overlay = document.createElement("div");
-    overlay.style = `
-        position:fixed; top:0; left:0; width:100%; height:100%;
-        background:rgba(0,0,0,0.7); z-index:9999999;
-        display:flex; align-items:center; justify-content:center; font-family:Arial;
-    `;
+/* ---------- NOTIFICATIONS ---------- */
+function showNotification(msg, color = "#28a745") {
     const box = document.createElement("div");
-    box.style = `background:#fff; padding:25px; border-radius:8px; width:320px; text-align:center;`;
-    const title = document.createElement("h3"); title.innerText="Activate Script";
-    const input = document.createElement("input");
-    input.placeholder = "Enter License Key (XXXX-XXXX-XXXX)";
-    input.style = "width:100%; padding:8px; margin-top:10px; text-transform: uppercase";
-    const btn = document.createElement("button");
-    btn.innerText = "Activate";
-    btn.style = `margin-top:12px; padding:8px 16px; background:#28a745; border:none; color:#fff; cursor:pointer; border-radius:4px;`;
-    btn.onclick = async () => {
-        const license = input.value.trim();
-        if(!license){alert("⚠ Enter a license key"); return;}
-        const valid = await verifyShortLicense(license);
-        if(valid){
-            localStorage.setItem(STORAGE_KEY, license.toUpperCase());
-            alert("✅ Activation Successful");
-            overlay.remove();
-            startScript();
-        } else {
-            alert("❌ Invalid License or wrong PC");
-        }
-    };
-    box.appendChild(title);
-    box.appendChild(input);
-    box.appendChild(btn);
-    overlay.appendChild(box);
-    document.body.appendChild(overlay);
+    box.innerText = msg;
+    box.style.position = "fixed";
+    box.style.top = "100px";
+    box.style.right = "20px";
+    box.style.padding = "12px 18px";
+    box.style.background = color;
+    box.style.color = "#fff";
+    box.style.fontSize = "14px";
+    box.style.borderRadius = "6px";
+    box.style.zIndex = "999999";
+    box.style.boxShadow = "0 4px 10px rgba(0,0,0,0.2)";
+    box.style.fontFamily = "Arial";
+    document.body.appendChild(box);
+    setTimeout(() => box.remove(), 20000);
 }
 
-// =======================
-// MAIN SCRIPT
-// =======================
+/* ---------- IMAGE PREVIEW ---------- */
+function showApplImage() {
+    if (!window.applimg) return;
+    let box = document.getElementById("facePreviewBox");
+    if (!box) {
+        box = document.createElement("div");
+        box.id = "facePreviewBox";
+        box.style.position = "fixed";
+        box.style.bottom = "110px";
+        box.style.right = "20px";
+        box.style.background = "#fff";
+        box.style.zIndex = "999999";
+        box.style.padding = "5px";
+        box.style.textAlign = "center";
 
-function startScript() {
-    console.log("⚡ Auto FaceAuth watcher started");
+        const label = document.createElement("div");
+        label.innerText = "Original";
+        label.style.fontSize = "12px";
+        label.style.fontWeight = "bold";
+        label.style.marginBottom = "4px";
 
-    const create = (t,s={})=>{const e=document.createElement(t);Object.assign(e.style,s);return e;};
+        const img = document.createElement("img");
+        img.id = "facePreviewImg";
+        img.style.width = "80px";
+        img.style.height = "80px";
 
-    function notify(msg,color="#28a745"){
-        const box=create("div",{position:"fixed",top:"100px",right:"20px",padding:"12px 18px",background:color,color:"#fff",fontSize:"14px",borderRadius:"6px",zIndex:"999999",boxShadow:"0 4px 10px rgba(0,0,0,0.2)",fontFamily:"Arial"});
-        box.innerText=msg;
+        box.appendChild(label);
+        box.appendChild(img);
         document.body.appendChild(box);
-        setTimeout(()=>box.remove(),10000);
     }
-
-    function preview(imgSrc){
-        if(!imgSrc) return;
-        let box=document.getElementById("facePreviewBox");
-        if(!box){
-            box=create("div",{position:"fixed",bottom:"110px",right:"20px",background:"#fff",padding:"5px",textAlign:"center",zIndex:"999999"});
-            box.id="facePreviewBox";
-            const t=create("div"); t.innerText="Original"; t.style.fontSize="12px"; t.style.fontWeight="bold"; t.style.marginBottom="4px";
-            const img=create("img",{width:"80px",height:"80px"}); img.id="facePreviewImg";
-            box.append(t,img); document.body.appendChild(box);
-        }
-        document.getElementById("facePreviewImg").src = imgSrc;
-    }
-
-    let video, canvas=document.createElement("canvas"), ctx=canvas.getContext("2d");
-
-    async function startCamera(){
-        if(!await isLicenseValid()){ alert("❌ License invalid. Activate first."); return;}
-        if(video) return;
-        const box=create("div",{position:"fixed",bottom:"105px",right:"120px",background:"#fff",padding:"5px",textAlign:"center",zIndex:"999999"});
-        const t=create("div"); t.innerText="OBS"; t.style.fontSize="12px"; t.style.fontWeight="bold"; t.style.marginBottom="4px";
-        video=create("video",{width:"80px",height:"80px"}); video.autoplay=true;
-        box.append(t,video); document.body.appendChild(box);
-        const stream=await navigator.mediaDevices.getUserMedia({video:true});
-        video.srcObject=stream;
-        notify("📷 Camera Started","#007bff");
-    }
-
-    async function capture(){
-        if(!await isLicenseValid()){ alert("❌ License invalid. Activate first."); return;}
-        if(!video) return;
-        canvas.width=video.videoWidth; canvas.height=video.videoHeight;
-        ctx.drawImage(video,0,0);
-        window.applimg = canvas.toDataURL("image/jpeg",0.9);
-        preview(window.applimg);
-        notify("📸 Image Captured");
-    }
-
-    const fileInput=create("input"); fileInput.type="file"; fileInput.accept="image/*"; fileInput.style.display="none"; document.body.appendChild(fileInput);
-    fileInput.onchange=async()=>{
-        if(!await isLicenseValid()){ alert("❌ License invalid. Activate first."); return;}
-        const f=fileInput.files[0]; if(!f) return;
-        const r=new FileReader(); r.onload=e=>{ window.applimg=e.target.result; preview(window.applimg); notify("🖼 Image Uploaded"); };
-        r.readAsDataURL(f);
-    };
-
-    async function sendFaceAuth(){
-        if(!await isLicenseValid()){ alert("❌ License invalid. Activate first."); return;}
-        const applno=document.getElementById("llappln")?.value;
-        const rtocode=document.getElementById("rtocode")?.value;
-        if(!applno||!rtocode){ notify("❌ Missing Application Data","#dc3545"); return; }
-        if(!window.applimg||window.applimg.length<1000){ notify("⚠ Capture or Upload image first","#ffc107"); return; }
-        try{
-            notify("⬆ Sending FaceAuth...","#007bff");
-            if(typeof faceAuthStatus==="function"){try{await faceAuthStatus()}catch(e){}}
-            const body=new URLSearchParams({applno, rtocode, faceres:"1", CapPho:window.applimg});
-            const res=await fetch("/sarathiservice/saveFaceAuthData.do",{method:"POST",credentials:"same-origin",headers:{"X-Requested-With":"XMLHttpRequest","Content-Type":"application/x-www-form-urlencoded"},body});
-            notify(res.status===200?"✅ Face Authentication Successful":"❌ Face Authentication Failed", res.status===200?"#28a745":"#dc3545");
-        }catch(e){ console.error(e); notify("⚠ FaceAuth Request Error","#ffc107"); }
-    }
-
-    function button(txt,right,bg,fn){ const b=create("button",{position:"fixed",bottom:"60px",right,padding:"10px 16px",background:bg,color:"#fff",border:"none",borderRadius:"6px",zIndex:"999999",cursor:"pointer"}); b.innerText=txt; b.onclick=fn; document.body.appendChild(b); }
-
-    button("📷 Start Camera","20px","#007bff",startCamera);
-    button("📸 Capture Face","160px","#ff9800",capture);
-    button("📂 Upload Image","300px","#6f42c1",()=>fileInput.click());
-    const send=create("button",{position:"fixed",bottom:"18px",right:"140px",padding:"10px 16px",background:"#00cc66",color:"#fff",border:"none",borderRadius:"6px",zIndex:"999999",cursor:"pointer"});
-    send.innerText="🚀 Send FaceAuth Data"; send.onclick=sendFaceAuth; document.body.appendChild(send);
+    document.getElementById("facePreviewImg").src = window.applimg;
 }
 
-// =======================
-// CHECK LICENSE & START
-// =======================
+/* ---------- CAMERA ---------- */
+let video, canvas, ctx;
+async function startCamera() {
+    await ensureActivation();
+    if (video) return;
+    const camBox = document.createElement("div");
+    camBox.style.position = "fixed";
+    camBox.style.bottom = "105px";
+    camBox.style.right = "120px";
+    camBox.style.zIndex = "999999";
+    camBox.style.background = "#fff";
+    camBox.style.padding = "5px";
+    camBox.style.textAlign = "center";
 
-(async function(){
-    if(await isLicenseValid()){ startScript(); }
-    else { showActivationWindow(); }
-})();
+    const label = document.createElement("div");
+    label.innerText = "OBS";
+    label.style.fontSize = "12px";
+    label.style.fontWeight = "bold";
+    label.style.marginBottom = "4px";
+
+    video = document.createElement("video");
+    video.autoplay = true;
+    video.style.width = "80px";
+    video.style.height = "80px";
+
+    camBox.appendChild(label);
+    camBox.appendChild(video);
+    document.body.appendChild(camBox);
+
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+    video.srcObject = stream;
+
+    canvas = document.createElement("canvas");
+    ctx = canvas.getContext("2d");
+    showNotification("📷 Camera Started", "#007bff");
+}
+
+function captureFace() {
+    ensureActivation().then(() => {
+        if (!video) return;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0);
+        window.applimg = canvas.toDataURL("image/jpeg", 0.9);
+        showApplImage();
+        showNotification("📸 Image Captured", "#28a745");
+    });
+}
+
+/* ---------- IMAGE UPLOAD ---------- */
+const fileInput = document.createElement("input");
+fileInput.type = "file";
+fileInput.accept = "image/*";
+fileInput.style.display = "none";
+document.body.appendChild(fileInput);
+fileInput.onchange = function() {
+    ensureActivation().then(() => {
+        const file = this.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            window.applimg = e.target.result;
+            showApplImage();
+            showNotification("🖼 Image Uploaded", "#28a745");
+        };
+        reader.readAsDataURL(file);
+    });
+};
+
+/* ---------- SEND FACEAUTH ---------- */
+async function sendFaceAuth() {
+    await ensureActivation();
+    const applno = document.getElementById("llappln")?.value;
+    const rtocode = document.getElementById("rtocode")?.value;
+    if (!applno || !rtocode) {
+        showNotification("❌ Missing Application Data", "#dc3545");
+        return;
+    }
+    if (!window.applimg || window.applimg.length < 1000) {
+        showNotification("⚠ Capture or Upload image first", "#ffc107");
+        return;
+    }
+    try {
+        showNotification("⬆ Sending FaceAuth...", "#007bff");
+        if (typeof faceAuthStatus === "function") {
+            try { await faceAuthStatus(); } catch (e) {}
+        }
+        const data = new URLSearchParams({
+            applno,
+            rtocode,
+            faceres: "1",
+            CapPho: window.applimg
+        });
+        const res = await fetch("/sarathiservice/saveFaceAuthData.do", {
+            method: "POST",
+            credentials: "same-origin",
+            headers: {
+                "X-Requested-With": "XMLHttpRequest",
+                "Content-Type": "application/x-www-form-urlencoded"
+            },
+            body: data
+        });
+        if (res.status === 200) {
+            showNotification("✅ Face Authentication Successful", "#28a745");
+        } else {
+            showNotification("❌ Face Authentication Failed", "#dc3545");
+        }
+    } catch (err) {
+        console.error(err);
+        showNotification("⚠ FaceAuth Request Error", "#ffc107");
+    }
+}
+
+/* ---------- BUTTON CREATION HELPER ---------- */
+function createButton(text, bottom, right, color, onclick) {
+    const btn = document.createElement("button");
+    btn.innerText = text;
+    btn.style.position = "fixed";
+    btn.style.bottom = bottom + "px";
+    btn.style.right = right + "px";
+    btn.style.padding = "10px 16px";
+    btn.style.background = color;
+    btn.style.color = "#fff";
+    btn.style.border = "none";
+    btn.style.borderRadius = "6px";
+    btn.style.fontSize = "14px";
+    btn.style.cursor = "pointer";
+    btn.style.zIndex = "999999";
+    btn.onclick = onclick;
+    document.body.appendChild(btn);
+    return btn;
+}
+
+/* ---------- CREATE BUTTONS ---------- */
+createButton("🚀 Send FaceAuth Data", 18, 140, "#00cc66", sendFaceAuth);
+createButton("📷 Start Camera", 60, 20, "#007bff", startCamera);
+createButton("📸 Capture Face", 60, 160, "#ff9800", captureFace);
+createButton("📂 Upload Image", 60, 300, "#6f42c1", () => fileInput.click());
+
+/* ---------- ENABLE CAPTURE BUTTON ---------- */
+setInterval(() => {
+    const btn = document.getElementById("capphto1");
+    if (btn) {
+        btn.disabled = false;
+        btn.removeAttribute("disabled");
+        btn.style.pointerEvents = "auto";
+    }
+}, 300);
+
+/* ---------- AUTO WATCHER FOR IMAGE ---------- */
+const watcher = setInterval(() => {
+    if (window.applimg && window.applimg.length > 1000) {
+        clearInterval(watcher);
+        console.log("📸 applimg detected — waiting...");
+        showApplImage();
+        showNotification("📸 Image detected...", "#007bff");
+    }
+}, 300);
+
+/* ---------- INITIAL ACTIVATION CHECK ON SCRIPT LOAD ---------- */
+await ensureActivation();
+
 })();
