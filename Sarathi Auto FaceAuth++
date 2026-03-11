@@ -11,7 +11,7 @@
 'use strict';
 
 /* ---------- MASTER DEVICE KEY ---------- */
-const MASTER_DEVICE_KEY = "MY_SECRET_DEVICE_KEY_123"; // Never expose externally
+const MASTER_DEVICE_KEY = "!2r5eZ^_.t8}hq=r"; // Never expose externally
 
 /* ---------- HELPER: SHA-256 HASH ---------- */
 async function getDeviceHash(masterKey) {
