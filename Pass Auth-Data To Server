@@ -8,9 +8,7 @@
 // @run-at       document-end
 // @grant        none
 // ==/UserScript==
-(function () {
-    'use strict';
-    function startObserver() {
+(function executeBypass() {
         'use strict';
         // Wait for all required elements and scripts to load
         const waitForElements = setInterval(() => {
@@ -19,9 +17,11 @@
                 document.getElementById('message')) {
                 clearInterval(waitForElements);
                 console.log("✅ Required elements found, starting bypass");
-                executeBypass();
+                //executeBypass();
             }
         }, 500);
+
+
         function executeBypass() {
             (async function restoreOriginalFlow() {
                 console.log("Restoring original face-aware flow");
@@ -192,7 +192,7 @@
                 }
             });
         }
-    }
+
     // 🔵 Create Floating Button
     const btn = document.createElement("button");
     btn.innerText = "Send Auth-Data To Server";
@@ -214,7 +214,7 @@
             btn.style.transform = "scale(1)"; // back to normal
         }, 100);
 
-        startObserver(); // your function
+       executeBypass(); // your function
     };
 
     document.body.appendChild(btn);
